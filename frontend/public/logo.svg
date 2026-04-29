@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 80" fill="none">
+  <!-- Background pill -->
+  <rect x="2" y="2" width="216" height="76" rx="16" fill="#0f172a" stroke="#1e40af" stroke-width="1.5" stroke-opacity="0.4"/>
+
+  <!-- Cloud body -->
+  <path d="M82 38 C82 30.3 88.3 24 96 24 C99.4 24 102.5 25.2 104.9 27.2 C106.9 22.9 111.3 20 116.5 20 C124.0 20 130 26.0 130 33.5 C130 33.9 130 34.3 129.9 34.7 C132.3 35.6 134 37.9 134 40.5 C134 44.1 131.1 47 127.5 47 L90.5 47 C85.8 47 82 43.2 82 38.5 Z"
+    fill="#1e40af" fill-opacity="0.35" stroke="#3b82f6" stroke-width="1.5" stroke-linejoin="round"/>
+
+  <!-- ECG / pulse line through the cloud -->
+  <polyline
+    points="84,40 92,40 95,33 99,48 104,28 109,48 113,38 118,38 122,38 126,38 132,38"
+    stroke="#34d399" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+  <!-- Pulse dot -->
+  <circle cx="132" cy="38" r="3" fill="#34d399" fill-opacity="0.9"/>
+  <circle cx="132" cy="38" r="5.5" fill="#34d399" fill-opacity="0.2"/>
+
+  <!-- Text: OciPulse -->
+  <text x="143" y="47" font-family="Inter, ui-sans-serif, system-ui" font-weight="700" font-size="22" fill="#f1f5f9" letter-spacing="-0.5">OciPulse</text>
+
+  <!-- Tagline -->
+  <text x="143" y="59" font-family="Inter, ui-sans-serif, system-ui" font-weight="400" font-size="9" fill="#64748b" letter-spacing="2">OCI OBSERVABILITY</text>
+</svg>

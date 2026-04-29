@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OciPulse — production docker-compose for OCI VM deployment
+#
+# Before starting:
+#   cp .env.example .env    # fill in your values
+#   docker compose up -d --build
+#
+# All runtime secrets come from the .env file (never baked into the image).
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── FastAPI Backend ──────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      # pull_policy: build ensures the image is always built locally, never pulled
+    pull_policy: never
+    container_name: ocipulse-backend
+
+    # Load every variable from .env (root of the repo)
+    env_file:
+      - .env
+
+    # CORS must include the VM's IP / domain so the browser can reach the API.
+    # Overriding here so docker-compose always wins over any stale .env value.
+    environment:
+      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost","http://localhost:80"]}
+
+    ports:
+      - "8000:8000"       # expose for debugging; remove in production if only nginx talks to it
+
+    volumes:
+      # OCI API-key auth (used when OCI_AUTH_TYPE=config_file)
+      # When OCI_AUTH_TYPE=instance_principal these mounts are ignored — keep them anyway.
+      - ${OCI_CONFIG_DIR:-~/.oci}:/root/.oci:ro
+
+      # Kubernetes kubeconfig (optional — remove if K8s not used)
+      - ${KUBE_CONFIG_DIR:-~/.kube}:/root/.kube:ro
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+    networks:
+      - ocipulse-net
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ── React Frontend (Nginx) ───────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: ocipulse-frontend
+
+    ports:
+      - "${FRONTEND_PORT:-80}:80"      # change to 443 if you add TLS termination
+      # - "443:443"                    # uncomment when adding SSL certs
+
+    volumes:
+      # Optional: mount a custom nginx config (e.g. for TLS / custom headers)
+      # - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+      # Optional: TLS certificates (Let's Encrypt / OCI Certificates)
+      # - /etc/letsencrypt:/etc/letsencrypt:ro
+
+      - /dev/null:/dev/null            # placeholder so volumes key is valid
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+    networks:
+      - ocipulse-net
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+networks:
+  ocipulse-net:
+    name: ocipulse-network
+    driver: bridge
