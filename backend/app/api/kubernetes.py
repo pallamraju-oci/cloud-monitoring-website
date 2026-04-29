@@ -1,3 +1,4 @@
+import time
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from app.auth import get_current_user
@@ -7,13 +8,16 @@ from utils.mock_data import get_mock_nodes, get_mock_pods, get_mock_namespaces, 
 router = APIRouter()
 
 _k8s_service = None
+_k8s_created_at = 0.0
+_K8S_TTL = 600  # recreate every 10 min so it picks up the refreshed OCI token
 
 
 def _k8s():
-    global _k8s_service
-    if _k8s_service is None:
+    global _k8s_service, _k8s_created_at
+    if _k8s_service is None or (time.time() - _k8s_created_at) > _K8S_TTL:
         from app.services.k8s_service import K8sService
         _k8s_service = K8sService()
+        _k8s_created_at = time.time()
     return _k8s_service
 
 
