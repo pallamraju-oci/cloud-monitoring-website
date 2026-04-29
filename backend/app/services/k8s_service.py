@@ -1,7 +1,12 @@
 """
 Kubernetes API service layer.
 Supports both in-cluster and kubeconfig-based auth.
+When the kubeconfig uses OCI's exec plugin (oci ce cluster generate-token),
+the plugin binary won't exist inside Docker, so we patch the kubeconfig
+in-memory to call /app/oke_token.py instead — same token, no oci-cli needed.
 """
+import os
+import tempfile
 from app.config import settings
 
 
@@ -12,7 +17,10 @@ class K8sService:
             if settings.K8S_IN_CLUSTER:
                 k8s_config.load_incluster_config()
             else:
-                k8s_config.load_kube_config(config_file=settings.K8S_CONFIG_FILE)
+                config_file = self._resolve_config(
+                    settings.K8S_CONFIG_FILE or os.path.expanduser("~/.kube/config")
+                )
+                k8s_config.load_kube_config(config_file=config_file)
             self.core = client.CoreV1Api()
             self.apps = client.AppsV1Api()
             self._available = True
@@ -20,6 +28,38 @@ class K8sService:
         except Exception as e:
             print(f"[K8s] API not available: {e}")
             self._available = False
+
+    def _resolve_config(self, config_file: str) -> str:
+        """
+        If the kubeconfig uses OCI's exec plugin, rewrite that user entry
+        to call /app/oke_token.py (which uses the oci Python SDK already
+        installed in the container) and return a path to the patched file.
+        """
+        try:
+            import yaml
+            with open(config_file) as f:
+                kube = yaml.safe_load(f)
+
+            patched = False
+            for user in kube.get("users", []):
+                exec_conf = user.get("user", {}).get("exec", {})
+                if exec_conf and "generate-token" in str(exec_conf.get("args", [])):
+                    exec_conf["command"] = "python3"
+                    exec_conf["args"] = ["/app/oke_token.py"]
+                    exec_conf.pop("env", None)
+                    patched = True
+
+            if not patched:
+                return config_file
+
+            tf = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+            yaml.dump(kube, tf)
+            tf.flush()
+            print(f"[K8s] Patched OCI exec plugin → /app/oke_token.py")
+            return tf.name
+        except Exception as e:
+            print(f"[K8s] kubeconfig patch skipped: {e}")
+            return config_file
 
     def _check(self):
         if not self._available:
