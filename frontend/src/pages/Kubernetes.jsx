@@ -8,7 +8,6 @@ import EmptyState from '../components/Common/EmptyState'
 import { useApi } from '../hooks/useApi'
 import { fetchK8sSummary, fetchNodes, fetchPods, fetchEvents, fetchPodLogs } from '../services/api'
 import { Container, Search, AlertTriangle, RefreshCw, X, Terminal, RotateCw } from 'lucide-react'
-import { REFRESH_INTERVALS } from '../utils/constants'
 import clsx from 'clsx'
 
 function UtilBar({ value, className }) {
@@ -54,12 +53,11 @@ export default function Kubernetes() {
       .finally(() => setLogsLoading(false))
   }
 
-  const { data: summary } = useApi(fetchK8sSummary, [], { interval: REFRESH_INTERVALS.dashboard })
-  const { data: nodesData } = useApi(fetchNodes, [], { interval: REFRESH_INTERVALS.dashboard })
+  const { data: summary } = useApi(fetchK8sSummary, [])
+  const { data: nodesData } = useApi(fetchNodes, [])
   const { data: podsData, loading, refetch, lastUpdated } = useApi(
     () => fetchPods(namespace || undefined, env),
     [namespace, env],
-    { interval: REFRESH_INTERVALS.dashboard }
   )
   const { data: eventsData } = useApi(fetchEvents, [])
 
