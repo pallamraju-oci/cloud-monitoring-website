@@ -1,6 +1,6 @@
 """
-OCI Logging service integration.
-Falls back to mock data when OCI credentials are absent.
+OCI Logging search service.
+Uses the same auth as OCIService (instance_principal on OCI VMs).
 """
 from app.config import settings
 from typing import Optional, List
@@ -8,13 +8,18 @@ from typing import Optional, List
 
 class LogService:
     def __init__(self):
+        self._available = False
         try:
             import oci
-            config = oci.config.from_file(settings.OCI_CONFIG_FILE, settings.OCI_PROFILE)
-            self.client = oci.loggingsearch.LogSearchClient(config)
+            from app.services.oci_service import _build_oci_config
+            config, signer = _build_oci_config()
+            kwargs = {"config": config}
+            if signer:
+                kwargs["signer"] = signer
+            self.client = oci.loggingsearch.LogSearchClient(**kwargs)
             self._available = True
-        except Exception:
-            self._available = False
+        except Exception as e:
+            print(f"[Logs] LogService unavailable: {e}")
 
     def get_logs(
         self,
@@ -30,18 +35,19 @@ class LogService:
         import oci
         from datetime import datetime, timedelta
 
-        query_parts = ["search 'ocid1.compartment.oc1..'"]
+        compartment_id = settings.compartment_list[0]["id"]
+        query = f"search '{compartment_id}'"
         if level:
-            query_parts.append(f"| where severity = '{level}'")
+            query += f" | where severity = '{level.upper()}'"
         if search:
-            query_parts.append(f"| where logContent contains '{search}'")
+            query += f" | where logContent contains '{search}'"
 
-        search_req = oci.loggingsearch.models.SearchLogsDetails(
+        details = oci.loggingsearch.models.SearchLogsDetails(
             time_start=datetime.utcnow() - timedelta(hours=24),
             time_end=datetime.utcnow(),
-            search_query=" ".join(query_parts),
+            search_query=query,
             is_return_field_info=False,
         )
-        resp = self.client.search_logs(search_logs_details=search_req)
+        resp = self.client.search_logs(search_logs_details=details)
         results = resp.data.results or []
         return [r.data for r in results[:limit]]

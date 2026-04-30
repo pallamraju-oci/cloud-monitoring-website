@@ -1,13 +1,38 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+import time
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 from pydantic import BaseModel
 from app.auth import get_current_user
+from app.config import settings
 from utils.mock_data import get_mock_alerts, get_mock_alert_rules
 
 router = APIRouter()
 
-# In-memory store for demo purposes
 _alert_rules = get_mock_alert_rules()
+
+_oci_service = None
+_k8s_service = None
+_oci_created_at = 0.0
+_k8s_created_at = 0.0
+_SVC_TTL = 600
+
+
+def _oci():
+    global _oci_service, _oci_created_at
+    if _oci_service is None or (time.time() - _oci_created_at) > _SVC_TTL:
+        from app.services.oci_service import OCIService
+        _oci_service = OCIService()
+        _oci_created_at = time.time()
+    return _oci_service
+
+
+def _k8s():
+    global _k8s_service, _k8s_created_at
+    if _k8s_service is None or (time.time() - _k8s_created_at) > _SVC_TTL:
+        from app.services.k8s_service import K8sService
+        _k8s_service = K8sService()
+        _k8s_created_at = time.time()
+    return _k8s_service
 
 
 class AlertRuleUpdate(BaseModel):
@@ -19,11 +44,27 @@ class AlertRuleUpdate(BaseModel):
 
 @router.get("/")
 async def list_alerts(current_user: dict = Depends(get_current_user)):
-    alerts = get_mock_alerts()
+    if settings.USE_MOCK_DATA:
+        alerts = get_mock_alerts()
+    else:
+        try:
+            from app.services.alert_service import evaluate_compute_alerts, evaluate_pod_alerts
+            instances = _oci().get_instances()
+            pods = _k8s().get_pods()
+            running = [i for i in instances if i["lifecycle_state"] == "RUNNING"]
+            alerts = evaluate_compute_alerts(running) + evaluate_pod_alerts(pods)
+            # Normalise to the same shape the frontend expects
+            for a in alerts:
+                a.setdefault("status", "active")
+                a.setdefault("id", f"{a['type']}-{a['resource']}")
+        except Exception as e:
+            print(f"[Alerts] failed: {e}")
+            alerts = get_mock_alerts()
+
     return {
-        "alerts": alerts,
-        "active": sum(1 for a in alerts if a["status"] == "active"),
-        "resolved": sum(1 for a in alerts if a["status"] == "resolved"),
+        "alerts":   alerts,
+        "active":   sum(1 for a in alerts if a.get("status", "active") == "active"),
+        "resolved": sum(1 for a in alerts if a.get("status") == "resolved"),
     }
 
 
