@@ -71,6 +71,8 @@ export const fetchPods       = (ns, env) => http.get('/kubernetes/pods', { param
 export const fetchNamespaces = () => http.get('/kubernetes/namespaces').then((r) => r.data)
 export const fetchK8sSummary = () => http.get('/kubernetes/summary').then((r) => r.data)
 export const fetchEvents     = () => http.get('/kubernetes/events').then((r) => r.data)
+export const fetchPodLogs   = (namespace, podName, container, lines = 200) =>
+  http.get(`/kubernetes/pods/${namespace}/${podName}/logs`, { params: { container: container || undefined, lines } }).then((r) => r.data)
 
 // ── Databases ─────────────────────────────────────────────────────────────────
 export const fetchDatabases  = (env) => http.get('/database/systems', { params: { environment: env || undefined } }).then((r) => r.data)

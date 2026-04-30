@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Layout from '../components/Layout/Layout'
 import Header from '../components/Layout/Header'
 import StatCard from '../components/Common/StatCard'
@@ -6,8 +6,8 @@ import StatusBadge from '../components/Common/StatusBadge'
 import LoadingSpinner from '../components/Common/LoadingSpinner'
 import EmptyState from '../components/Common/EmptyState'
 import { useApi } from '../hooks/useApi'
-import { fetchK8sSummary, fetchNodes, fetchPods, fetchEvents } from '../services/api'
-import { Container, Search, AlertTriangle, RefreshCw } from 'lucide-react'
+import { fetchK8sSummary, fetchNodes, fetchPods, fetchEvents, fetchPodLogs } from '../services/api'
+import { Container, Search, AlertTriangle, RefreshCw, X, Terminal, RotateCw } from 'lucide-react'
 import { REFRESH_INTERVALS } from '../utils/constants'
 import clsx from 'clsx'
 
@@ -30,6 +30,29 @@ export default function Kubernetes() {
   const [namespace, setNs]    = useState('')
   const [tab, setTab]         = useState('pods')
   const [env, setEnv]         = useState(undefined)
+
+  const [selectedPod, setSelectedPod] = useState(null)
+  const [podLogs, setPodLogs]         = useState('')
+  const [logsLoading, setLogsLoading] = useState(false)
+
+  useEffect(() => {
+    if (!selectedPod) return
+    setLogsLoading(true)
+    setPodLogs('')
+    fetchPodLogs(selectedPod.namespace, selectedPod.name)
+      .then(data => setPodLogs(data.logs || '(no logs)'))
+      .catch(err => setPodLogs(`Error: ${err.message}`))
+      .finally(() => setLogsLoading(false))
+  }, [selectedPod])
+
+  const refreshLogs = () => {
+    if (!selectedPod) return
+    setLogsLoading(true)
+    fetchPodLogs(selectedPod.namespace, selectedPod.name)
+      .then(data => setPodLogs(data.logs || '(no logs)'))
+      .catch(err => setPodLogs(`Error: ${err.message}`))
+      .finally(() => setLogsLoading(false))
+  }
 
   const { data: summary } = useApi(fetchK8sSummary, [], { interval: REFRESH_INTERVALS.dashboard })
   const { data: nodesData } = useApi(fetchNodes, [], { interval: REFRESH_INTERVALS.dashboard })
@@ -161,11 +184,14 @@ export default function Kubernetes() {
                     {pods.length === 0 ? (
                       <tr><td colSpan={8}><EmptyState title="No pods found" message="Try adjusting your filters." icon={Container} /></td></tr>
                     ) : pods.map((pod) => (
-                      <tr key={pod.name} className="table-row">
+                      <tr key={pod.name} className="table-row cursor-pointer" onClick={() => setSelectedPod(pod)} title="Click to view logs">
                         <td className="py-2.5 px-3">
-                          <div>
-                            <p className="font-mono text-xs text-slate-200 truncate max-w-[200px]">{pod.name}</p>
-                            <p className="text-[10px] text-slate-500">{pod.app}</p>
+                          <div className="flex items-center gap-1.5">
+                            <Terminal size={12} className="text-slate-500 shrink-0" />
+                            <div>
+                              <p className="font-mono text-xs text-slate-200 truncate max-w-[200px]">{pod.name}</p>
+                              <p className="text-[10px] text-slate-500">{pod.app}</p>
+                            </div>
                           </div>
                         </td>
                         <td className="py-2.5 px-3"><span className="badge-slate">{pod.namespace}</span></td>
@@ -209,6 +235,50 @@ export default function Kubernetes() {
           )}
         </div>
       </div>
+      {/* Pod Logs Drawer */}
+      {selectedPod && (
+        <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/60" onClick={() => setSelectedPod(null)}>
+          <div className="w-full max-w-3xl bg-slate-900 border-l border-slate-700 flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-slate-700 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <Terminal size={16} className="text-blue-400" />
+                <div>
+                  <p className="text-sm font-mono font-semibold text-slate-200">{selectedPod.name}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    <span className="badge-slate mr-1">{selectedPod.namespace}</span>
+                    <StatusBadge status={selectedPod.status} />
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={refreshLogs}
+                  disabled={logsLoading}
+                  className="p-1.5 hover:bg-slate-700 rounded text-slate-400 hover:text-white disabled:opacity-50"
+                  title="Refresh logs"
+                >
+                  <RotateCw size={14} className={logsLoading ? 'animate-spin' : ''} />
+                </button>
+                <button
+                  onClick={() => setSelectedPod(null)}
+                  className="p-1.5 hover:bg-slate-700 rounded text-slate-400 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-4 bg-slate-950">
+              {logsLoading ? (
+                <p className="text-slate-500 text-xs font-mono animate-pulse">Fetching logs…</p>
+              ) : (
+                <pre className="text-xs font-mono text-slate-300 whitespace-pre-wrap break-all leading-5">
+                  {podLogs || '(no logs available)'}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   )
 }

@@ -1,4 +1,5 @@
 import time
+import datetime
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from app.auth import get_current_user
@@ -71,6 +72,43 @@ async def list_events(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         print(f"[K8s] get_events failed: {e}")
         return {"events": get_mock_events()}
+
+
+@router.get("/pods/{namespace}/{pod_name}/logs")
+async def pod_logs(
+    namespace: str,
+    pod_name: str,
+    container: Optional[str] = Query(None),
+    lines: int = Query(200, ge=10, le=2000),
+    current_user: dict = Depends(get_current_user),
+):
+    if settings.USE_MOCK_DATA:
+        now = datetime.datetime.utcnow()
+        msgs = [
+            ("INFO",  "Pod initializing"),
+            ("INFO",  f"Container {pod_name} started"),
+            ("INFO",  "Health check: OK"),
+            ("INFO",  "Listening on :8080"),
+            ("INFO",  "GET /health 200 1ms"),
+            ("INFO",  "GET /metrics 200 2ms"),
+            ("WARN",  "Slow response detected: 520ms"),
+            ("INFO",  "Cache refreshed"),
+            ("INFO",  "GET /api/status 200 3ms"),
+            ("ERROR", "Connection retry attempt 1/3"),
+            ("INFO",  "Connection restored"),
+            ("INFO",  "Processed 142 requests"),
+        ]
+        log_lines = []
+        for i, (lvl, msg) in enumerate(msgs):
+            ts = (now - datetime.timedelta(seconds=len(msgs) - i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            log_lines.append(f"{ts} {lvl} {msg}")
+        return {"logs": "\n".join(log_lines), "pod": pod_name, "namespace": namespace}
+    try:
+        logs = _k8s().get_pod_logs(namespace=namespace, pod_name=pod_name, container=container, lines=lines)
+        return {"logs": logs, "pod": pod_name, "namespace": namespace}
+    except Exception as e:
+        print(f"[K8s] pod_logs failed: {e}")
+        return {"logs": f"Error fetching logs: {e}", "pod": pod_name, "namespace": namespace}
 
 
 @router.get("/summary")

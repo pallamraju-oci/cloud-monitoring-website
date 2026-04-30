@@ -106,6 +106,13 @@ class K8sService:
         self._check()
         return [ns.metadata.name for ns in self.core.list_namespace().items]
 
+    def get_pod_logs(self, namespace: str, pod_name: str, container: str = None, lines: int = 200) -> str:
+        self._check()
+        kwargs = {"name": pod_name, "namespace": namespace, "tail_lines": lines, "timestamps": True}
+        if container:
+            kwargs["container"] = container
+        return self.core.read_namespaced_pod_log(**kwargs) or ""
+
     def get_events(self):
         self._check()
         result = []
