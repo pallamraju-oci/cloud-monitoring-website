@@ -3,10 +3,10 @@ export const API_BASE = '/api'
 export const ENVIRONMENTS = ['prod', 'stage', 'dev']
 
 export const REFRESH_INTERVALS = {
-  dashboard: 10_000,   // 10 s — KPI cards
-  metrics:    8_000,   //  8 s — charts
-  logs:      20_000,   // 20 s — log stream
-  alerts:    10_000,   // 10 s — alert list
+  dashboard: 60_000,   // 60 s — KPI cards
+  metrics:   30_000,   // 30 s — charts
+  logs:      60_000,   // 60 s — log stream
+  alerts:    60_000,   // 60 s — alert list
 }
 
 export const STATUS_COLORS = {

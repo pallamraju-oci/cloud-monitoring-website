@@ -1,3 +1,4 @@
+import time
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from app.auth import get_current_user
@@ -7,6 +8,9 @@ from utils.mock_data import get_mock_logs, get_log_summary
 router = APIRouter()
 
 _log_service = None
+_k8s_service = None
+_k8s_created_at = 0.0
+_SVC_TTL = 600
 
 
 def _logs():
@@ -17,14 +21,54 @@ def _logs():
     return _log_service
 
 
+def _k8s():
+    global _k8s_service, _k8s_created_at
+    if _k8s_service is None or (time.time() - _k8s_created_at) > _SVC_TTL:
+        from app.services.k8s_service import K8sService
+        _k8s_service = K8sService()
+        _k8s_created_at = time.time()
+    return _k8s_service
+
+
+def _k8s_events_as_logs(limit: int, level: str = None, search: str = None) -> list:
+    """Convert K8s events to log-shaped dicts as a fallback log source."""
+    events = _k8s().get_events()
+    logs = []
+    for e in events:
+        sev = "ERROR" if e.get("type") == "Warning" else "INFO"
+        if level and sev != level.upper():
+            continue
+        msg = e.get("message", "")
+        if search and search.lower() not in msg.lower():
+            continue
+        logs.append({
+            "timestamp": e.get("last_time", ""),
+            "level":     sev,
+            "severity":  sev,
+            "service":   e.get("object", "kubernetes").split("/")[0],
+            "message":   msg,
+            "namespace": e.get("namespace", ""),
+            "source":    "kubernetes",
+        })
+    return logs[:limit]
+
+
 def _get_logs(level=None, service=None, environment=None, search=None, limit=100):
     if settings.USE_MOCK_DATA:
         return get_mock_logs(level=level, service=service, environment=environment, search=search, limit=limit)
+    # Try OCI Logging first
     try:
-        return _logs().get_logs(level=level, service=service, environment=environment, search=search, limit=limit)
+        results = _logs().get_logs(level=level, service=service, environment=environment, search=search, limit=limit)
+        if results:
+            return results
     except Exception as e:
-        print(f"[Logs] get_logs failed: {e}")
-        return get_mock_logs(level=level, service=service, environment=environment, search=search, limit=limit)
+        print(f"[Logs] OCI Logging failed: {e}")
+    # Fall back to K8s events
+    try:
+        return _k8s_events_as_logs(limit=limit, level=level, search=search)
+    except Exception as e:
+        print(f"[Logs] K8s events fallback failed: {e}")
+    return get_mock_logs(level=level, service=service, environment=environment, search=search, limit=limit)
 
 
 @router.get("/")
@@ -48,8 +92,8 @@ async def logs_summary(current_user: dict = Depends(get_current_user)):
         logs = _get_logs(limit=500)
         summary = {"error": 0, "warning": 0, "info": 0, "by_service": {}}
         for log in logs:
-            sev = str(log.get("severity", log.get("level", "INFO"))).upper()
-            key = "error" if "ERROR" in sev else "warning" if "WARN" in sev else "info"
+            raw = str(log.get("severity", log.get("level", "INFO"))).upper()
+            key = "error" if "ERROR" in raw else "warning" if "WARN" in raw else "info"
             summary[key] += 1
             svc = log.get("service", log.get("source", "unknown"))
             if svc not in summary["by_service"]:
@@ -73,10 +117,10 @@ async def log_services(current_user: dict = Depends(get_current_user)):
 
     services = [
         {
-            "name":    svc,
+            "name":   svc,
             **counts,
-            "total":   counts["error"] + counts["warning"] + counts["info"],
-            "health":  "critical" if counts["error"] > 5 else "warning" if counts["error"] > 0 or counts["warning"] > 3 else "healthy",
+            "total":  counts["error"] + counts["warning"] + counts["info"],
+            "health": "critical" if counts["error"] > 5 else "warning" if counts["error"] > 0 or counts["warning"] > 3 else "healthy",
         }
         for svc, counts in summary["by_service"].items()
     ]
